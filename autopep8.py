@@ -236,7 +236,7 @@ pycodestyle.register_check(extended_blank_lines)
 
 
 def continued_indentation(logical_line, tokens, indent_level, hang_closing,
-                          indent_char, noqa):
+                          indent_char, noqa, indent_size):
     """Override pycodestyle's function to provide indentation information."""
     first_row = tokens[0][2][0]
     nrows = 1 + tokens[-1][2][0] - first_row
@@ -251,9 +251,8 @@ def continued_indentation(logical_line, tokens, indent_level, hang_closing,
 
     row = depth = 0
     valid_hangs = (
-        (DEFAULT_INDENT_SIZE,)
-        if indent_char != '\t' else (DEFAULT_INDENT_SIZE,
-                                     2 * DEFAULT_INDENT_SIZE)
+        (indent_size,)
+        if indent_char != '\t' else (indent_size, 2 * indent_size)
     )
 
     # Remember how many brackets were opened on each line.
@@ -320,8 +319,7 @@ def continued_indentation(logical_line, tokens, indent_level, hang_closing,
                     # Visual indent is broken.
                     yield (start, 'E128 {}'.format(indent[depth]))
             elif (hanging_indent or
-                  (indent_next and
-                   rel_indent[row] == 2 * DEFAULT_INDENT_SIZE)):
+                  (indent_next and rel_indent[row] == 2 * indent_size)):
                 # Hanging indent is verified.
                 if close_bracket and not hang_closing:
                     yield (start, 'E123 {}'.format(indent_level +
@@ -335,7 +333,7 @@ def continued_indentation(logical_line, tokens, indent_level, hang_closing,
                 pass
             else:
                 one_indented = (indent_level + rel_indent[open_row] +
-                                DEFAULT_INDENT_SIZE)
+                                indent_size)
                 # Indent is broken.
                 if hang <= 0:
                     error = ('E122', one_indented)
@@ -343,7 +341,7 @@ def continued_indentation(logical_line, tokens, indent_level, hang_closing,
                     error = ('E127', indent[depth])
                 elif not close_bracket and hangs[depth]:
                     error = ('E131', one_indented)
-                elif hang > DEFAULT_INDENT_SIZE:
+                elif hang > indent_size:
                     error = ('E126', one_indented)
                 else:
                     hangs[depth] = hang
@@ -416,10 +414,10 @@ def continued_indentation(logical_line, tokens, indent_level, hang_closing,
     if (
         indent_next and
         not last_line_begins_with_multiline and
-        pycodestyle.expand_indent(line) == indent_level + DEFAULT_INDENT_SIZE
+        pycodestyle.expand_indent(line) == indent_level + indent_size
     ):
         pos = (start[0], indent[0] + 4)
-        desired_indent = indent_level + 2 * DEFAULT_INDENT_SIZE
+        desired_indent = indent_level + 2 * indent_size
         if visual_indent:
             yield (pos, 'E129 {}'.format(desired_indent))
         else:
@@ -606,6 +604,7 @@ class FixPEP8(object):
             'select': self.options.select,
             'max_line_length': self.options.max_line_length,
             'hang_closing': self.options.hang_closing,
+            'indent_size': len(self.indent_word)
         }
         results = _execute_pep8(pep8_options, self.source)
 
@@ -1922,6 +1921,7 @@ def shorten_line(tokens, source, indentation, indent_word, max_line_length,
                 tokens=tokens,
                 source=source,
                 indentation=indentation,
+                indent_word=indent_word,
                 max_line_length=max_line_length):
 
             yield shortened
@@ -2740,15 +2740,15 @@ def _parse_tokens(tokens):
     return parsed_tokens
 
 
-def _reflow_lines(parsed_tokens, indentation, max_line_length,
+def _reflow_lines(parsed_tokens, indentation, indent_word, max_line_length,
                   start_on_prefix_line):
     """Reflow the lines so that it looks nice."""
 
     if unicode(parsed_tokens[0]) == 'def':
         # A function definition gets indented a bit more.
-        continued_indent = indentation + ' ' * 2 * DEFAULT_INDENT_SIZE
+        continued_indent = indentation + indent_word + indent_word
     else:
-        continued_indent = indentation + ' ' * DEFAULT_INDENT_SIZE
+        continued_indent = indentation + indent_word
 
     break_after_open_bracket = not start_on_prefix_line
 
@@ -2782,7 +2782,7 @@ def _reflow_lines(parsed_tokens, indentation, max_line_length,
     return lines.emit()
 
 
-def _shorten_line_at_tokens_new(tokens, source, indentation,
+def _shorten_line_at_tokens_new(tokens, source, indentation, indent_word,
                                 max_line_length):
     """Shorten the line taking its length into account.
 
@@ -2799,13 +2799,13 @@ def _shorten_line_at_tokens_new(tokens, source, indentation,
     if parsed_tokens:
         # Perform two reflows. The first one starts on the same line as the
         # prefix. The second starts on the line after the prefix.
-        fixed = _reflow_lines(parsed_tokens, indentation, max_line_length,
-                              start_on_prefix_line=True)
+        fixed = _reflow_lines(parsed_tokens, indentation, indent_word,
+                              max_line_length, start_on_prefix_line=True)
         if fixed and check_syntax(normalize_multiline(fixed.lstrip())):
             yield fixed
 
-        fixed = _reflow_lines(parsed_tokens, indentation, max_line_length,
-                              start_on_prefix_line=False)
+        fixed = _reflow_lines(parsed_tokens, indentation, indent_word,
+                              max_line_length, start_on_prefix_line=False)
         if fixed and check_syntax(normalize_multiline(fixed.lstrip())):
             yield fixed
 
@@ -3531,6 +3531,7 @@ def fix_lines(source_lines, options, filename=''):
             'select': options.select,
             'max_line_length': options.max_line_length,
             'hang_closing': options.hang_closing,
+            'indent_size': options.indent_size,
         }
         sio = io.StringIO(tmp_source)
         contents = sio.readlines()
